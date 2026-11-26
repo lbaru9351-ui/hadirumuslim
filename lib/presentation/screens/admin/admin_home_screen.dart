@@ -6,6 +6,7 @@ import '../../../core/constants/dimensions.dart';
 import '../../../data/models/course_model.dart';
 import '../../../data/models/user_model.dart';
 import '../../../data/models/academic_calendar_model.dart';
+import '../../../data/models/attendance_model.dart';
 import '../../../data/repositories/attendance_repository.dart';
 import '../../providers/auth_provider.dart';
 import '../auth/login_screen.dart';

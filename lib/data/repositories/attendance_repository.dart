@@ -645,7 +645,7 @@ class AttendanceRepository {
     String? anomalyReason;
 
     final recentSameScans = _db.attendances.where((a) =>
-        a.sessionId == session.id &&
+        a.sessionId == session!.id &&
         serverTime.difference(a.serverTimestamp).inSeconds.abs() <= 5 &&
         (a.studentLat - studentLat).abs() < 0.00001 &&
         (a.studentLon - studentLon).abs() < 0.00001);
