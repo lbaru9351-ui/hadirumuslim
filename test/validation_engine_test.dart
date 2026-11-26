@@ -220,5 +220,112 @@ void main() {
       expect(fikClasses.every((c) => c.fakultas == 'Fakultas Ilmu Komputer'), isTrue);
       expect(fikClasses.length, greaterThanOrEqualTo(ifClasses.length));
     });
+
+    test('Integritas Kriptografis: Kode Bukti Digital & Rantai Hash Audit Log (Append-Only)', () {
+      final now = DateTime.now();
+      final proof = AttendanceModel.generateProofCode('ses_test_01', '210602001', now);
+      expect(proof, startsWith('ALM-'));
+      expect(proof.length, 18);
+
+      final attendance = AttendanceModel(
+        id: 'att_test_01',
+        sessionId: 'ses_test_01',
+        classId: 'cls_rpl_a',
+        studentId: 'usr_mhs_1',
+        studentName: 'M Hafizh',
+        studentNpm: '210602001',
+        initialStatus: AttendanceStatus.hadir,
+        status: AttendanceStatus.hadir,
+        serverTimestamp: now,
+        distanceMeters: 5.0,
+        studentLat: 5.197820,
+        studentLon: 96.702950,
+        deviceId: 'dev_test',
+        processDurationMs: 1200,
+        proofCode: proof,
+      );
+
+      // Verifikasi awal: rantai hash kosong dianggap utuh
+      expect(attendance.verifyAuditChainIntegrity(), isTrue);
+
+      // Tambahkan modifikasi status berantai hash #1
+      final hash1 = AuditLogEntry.computeHash(
+        previousHash: AuditLogEntry.genesisHash,
+        sequence: 1,
+        timestamp: now.add(const Duration(minutes: 5)),
+        previousStatus: AttendanceStatus.hadir,
+        newStatus: AttendanceStatus.izin,
+        changedBy: 'Dosen Pengampu',
+        reason: 'Surat tugas dinas kampus',
+      );
+      attendance.auditLogs.add(AuditLogEntry(
+        sequence: 1,
+        timestamp: now.add(const Duration(minutes: 5)),
+        previousStatus: AttendanceStatus.hadir,
+        newStatus: AttendanceStatus.izin,
+        changedBy: 'Dosen Pengampu',
+        reason: 'Surat tugas dinas kampus',
+        previousHash: AuditLogEntry.genesisHash,
+        entryHash: hash1,
+      ));
+
+      expect(attendance.verifyAuditChainIntegrity(), isTrue);
+
+      // Tambahkan modifikasi berantai hash #2
+      final hash2 = AuditLogEntry.computeHash(
+        previousHash: hash1,
+        sequence: 2,
+        timestamp: now.add(const Duration(minutes: 10)),
+        previousStatus: AttendanceStatus.izin,
+        newStatus: AttendanceStatus.hadir,
+        changedBy: 'Admin Prodi',
+        reason: 'Sanggahan diterima',
+      );
+      attendance.auditLogs.add(AuditLogEntry(
+        sequence: 2,
+        timestamp: now.add(const Duration(minutes: 10)),
+        previousStatus: AttendanceStatus.izin,
+        newStatus: AttendanceStatus.hadir,
+        changedBy: 'Admin Prodi',
+        reason: 'Sanggahan diterima',
+        previousHash: hash1,
+        entryHash: hash2,
+      ));
+
+      expect(attendance.verifyAuditChainIntegrity(), isTrue);
+    });
+
+    test('Sanggahan Mahasiswa: Mahasiswa dapat mengajukan keberatan dan diselesaikan Admin', () {
+      final history = repo.getAttendanceHistoryForStudent('usr_mhs_1');
+      expect(history, isNotEmpty);
+
+      final editedAttendance = history.firstWhere(
+        (a) => a.isModifiedByLecturer,
+        orElse: () => history.first,
+      );
+
+      // Mahasiswa mengajukan sanggahan
+      final submitted = repo.submitAttendanceDispute(
+        attendanceId: editedAttendance.id,
+        studentId: 'usr_mhs_1',
+        reason: 'Saya hadir di kelas dan memiliki saksi mahasiswa lain',
+      );
+      expect(submitted, isTrue);
+
+      final pending = repo.getPendingDisputes();
+      expect(pending.any((a) => a.id == editedAttendance.id), isTrue);
+
+      // Admin menyelesaikan sanggahan (diterima)
+      final resolved = repo.resolveAttendanceDispute(
+        attendanceId: editedAttendance.id,
+        isApproved: true,
+        resolutionNotes: 'Bukti presensi dan catatan kelas dikonfirmasi',
+        adminName: 'Ria Rizki, S.Kom., M.T. (Kaprodi IF)',
+      );
+      expect(resolved, isTrue);
+      expect(editedAttendance.disputeStatus, DisputeStatus.approved);
+      expect(editedAttendance.status, editedAttendance.initialStatus);
+      expect(editedAttendance.verifyAuditChainIntegrity(), isTrue);
+    });
   });
 }

@@ -62,6 +62,35 @@ Aturan tambahan:
 - Pemeriksaan lokasi di sisi aplikasi dapat dilewati aplikasi fake GPS. Akui ini sebagai keterbatasan
   dan jangan mengklaim sistem "kebal" terhadap pemalsuan lokasi.
 
+## Prinsip Perlindungan Dua Pihak, Integritas Kriptografis & Deteksi Anomali
+
+Sistem dirancang dengan asas keseimbangan perlindungan hak dosen dan mahasiswa:
+
+1. **Kode Bukti Digital Kriptografis (Digital Receipt):**
+   - Setiap pemindaian QR yang sah otomatis menghasilkan kode bukti digital ringkas (misal: `ALM-A8F3-7B1C-9E42`) dan hash SHA-256 yang diturunkan dari `ID Sesi + NPM + Waktu Server`.
+   - Kode bukti ini tersimpan di riwayat mahasiswa dan dapat diverifikasi keasliannya kapan pun oleh Program Studi atau BAA.
+
+2. **Perlindungan Terhadap Perubahan Sepihak Dosen:**
+   - Dosen **dilarang menghapus** rekaman kehadiran mahasiswa (*no delete operation*).
+   - Dosen hanya diizinkan mengubah status kehadiran (misal Hadir menjadi Sakit/Izin) dengan **alasan wajib** (minimal 5 karakter).
+   - **Status awal pemindaian QR (`initialStatus`) tetap tersimpan permanen** dan tidak dapat ditimpa.
+   - Setiap perubahan status memicu notifikasi/catatan transparan pada riwayat mahasiswa.
+
+3. **Mekanisme Sanggahan / Keberatan Mahasiswa (Dispute Resolution):**
+   - Mahasiswa berhak mengajukan sanggahan resmi ke Admin Program Studi jika status kehadirannya diubah sepihak oleh dosen.
+   - Pengajuan sanggahan otomatis menyertakan kode bukti presensi digital untuk ditinjau secara adil oleh Admin Prodi atau BAA.
+
+4. **Jejak Audit Terantai Hash (Append-Only Hash-Chained Audit Log):**
+   - Setiap perubahan status dicatat dalam log yang hanya bisa ditambah (*append-only*).
+   - Setiap entri log dirantai dengan hash kriptografis entri sebelumnya (`entryHash = SHA256(prevHash + timestamp + oldStatus + newStatus + changedBy + reason)`).
+   - Perubahan data diam-diam di database akan memutus rantai hash dan langsung terdeteksi (*tamper-evident*).
+   - *Catatan Skripsi:* Akses langsung pengguna tingkat tertinggi (DBA/root database) tetap dicatat secara jujur sebagai batas ancaman teknis (*threat model limitation*).
+
+5. **Deteksi Anomali & Asas Keadilan ("Perlu Verifikasi"):**
+   - Sistem memantau pola mencurigakan seperti koordinat identik antar mahasiswa dalam selang waktu < 5 detik atau pola waktu pemindaian yang seragam (indikasi bot / titip lokasi).
+   - Kasus meragukan ditandai dengan status **"Perlu Verifikasi"** (*flagged for review*), bukan langsung ditolak, agar mahasiswa jujur yang mengalami glitch GPS tidak dirugikan.
+   - Keterbatasan deteksi fake GPS tingkat kernel/hardware dicatat secara objektif pada Bab IV dan V skripsi.
+
 ## Parameter default (sesuaikan saat uji coba)
 
 - Interval pembaruan token: 30 detik; token sebelumnya tetap diterima satu siklus.

@@ -286,7 +286,79 @@ class MockDatabase {
       ),
     );
 
-    // 5. Kehadiran Rian (Hadir via QR - Sah & Terkunci)
+    // 5. Data Kehadiran Mahasiswa dengan Kode Bukti & Rantai Hash Kriptografis
+    // A. Kehadiran M Hafizh (Hadir via QR - Sah & Memiliki Kode Bukti Digital)
+    final p6Time = now.subtract(const Duration(days: 7, hours: 2));
+    final p6Proof = AttendanceModel.generateProofCode('ses_rpl_p6', '210602001', p6Time);
+    attendances.add(
+      AttendanceModel(
+        id: 'ses_rpl_p6_usr_mhs_1',
+        sessionId: 'ses_rpl_p6',
+        classId: 'cls_rpl_a',
+        studentId: 'usr_mhs_1',
+        studentName: 'M Hafizh',
+        studentNpm: '210602001',
+        initialStatus: AttendanceStatus.hadir,
+        status: AttendanceStatus.hadir,
+        source: AttendanceSource.qrScan,
+        serverTimestamp: p6Time,
+        distanceMeters: 6.2,
+        studentLat: 5.197810,
+        studentLon: 96.702960,
+        deviceId: 'dev_mhafizh_phone_001',
+        processDurationMs: 1210,
+        proofCode: p6Proof,
+      ),
+    );
+
+    // B. Kehadiran M Hafizh diubah oleh Dosen (Simulasi Proteksi & Hak Sanggahan)
+    final p5Time = now.subtract(const Duration(days: 14, hours: 1));
+    final p5Proof = AttendanceModel.generateProofCode('ses_rpl_p5', '210602001', p5Time);
+    final p5AuditLog = AuditLogEntry(
+      sequence: 1,
+      timestamp: p5Time.add(const Duration(hours: 1)),
+      previousStatus: AttendanceStatus.hadir,
+      newStatus: AttendanceStatus.sakit,
+      changedBy: 'Dr. Ir. Teuku Iskandar, M.Kom.',
+      reason: 'Mahasiswa izin ke UKS kampus saat pertengahan perkuliahan',
+      previousHash: AuditLogEntry.genesisHash,
+      entryHash: AuditLogEntry.computeHash(
+        previousHash: AuditLogEntry.genesisHash,
+        sequence: 1,
+        timestamp: p5Time.add(const Duration(hours: 1)),
+        previousStatus: AttendanceStatus.hadir,
+        newStatus: AttendanceStatus.sakit,
+        changedBy: 'Dr. Ir. Teuku Iskandar, M.Kom.',
+        reason: 'Mahasiswa izin ke UKS kampus saat pertengahan perkuliahan',
+      ),
+    );
+
+    attendances.add(
+      AttendanceModel(
+        id: 'ses_rpl_p5_usr_mhs_1',
+        sessionId: 'ses_rpl_p5',
+        classId: 'cls_rpl_a',
+        studentId: 'usr_mhs_1',
+        studentName: 'M Hafizh',
+        studentNpm: '210602001',
+        initialStatus: AttendanceStatus.hadir,
+        status: AttendanceStatus.sakit,
+        source: AttendanceSource.qrScan,
+        serverTimestamp: p5Time,
+        distanceMeters: 11.4,
+        studentLat: 5.197830,
+        studentLon: 96.702980,
+        deviceId: 'dev_mhafizh_phone_001',
+        processDurationMs: 1350,
+        proofCode: p5Proof,
+        editReason: 'Mahasiswa izin ke UKS kampus saat pertengahan perkuliahan',
+        editedAt: p5Time.add(const Duration(hours: 1)),
+        editedBy: 'Dr. Ir. Teuku Iskandar, M.Kom.',
+        auditLogs: [p5AuditLog],
+      ),
+    );
+
+    // C. Kehadiran Rian Hidayat (Hadir via QR - Sah & Terkunci)
     attendances.add(
       AttendanceModel(
         id: 'ses_rpl_p7_usr_mhs_2',
@@ -295,6 +367,7 @@ class MockDatabase {
         studentId: 'usr_mhs_2',
         studentName: 'Rian Hidayat',
         studentNpm: '210602002',
+        initialStatus: AttendanceStatus.hadir,
         status: AttendanceStatus.hadir,
         source: AttendanceSource.qrScan,
         serverTimestamp: now.subtract(const Duration(minutes: 1)),

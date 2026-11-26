@@ -42,6 +42,20 @@ class StudentAttendanceProvider extends ChangeNotifier {
     return _repository.getLeaveRequestsForStudent(studentId);
   }
 
+  bool submitDispute({
+    required String attendanceId,
+    required String studentId,
+    required String reason,
+  }) {
+    final success = _repository.submitAttendanceDispute(
+      attendanceId: attendanceId,
+      studentId: studentId,
+      reason: reason,
+    );
+    notifyListeners();
+    return success;
+  }
+
   Future<LeaveRequestModel> submitLeaveRequest({
     required String sessionId,
     required String classId,

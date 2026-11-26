@@ -25,15 +25,20 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> with SingleTickerProv
   String _selectedProdiFilter = 'Semua';
   String _selectedRoleFilter = 'Semua';
 
+  // Verifikasi Bukti Presensi State
+  final TextEditingController _proofVerifyController = TextEditingController();
+  Map<String, dynamic>? _proofVerificationResult;
+
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _proofVerifyController.dispose();
     super.dispose();
   }
 
@@ -96,6 +101,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> with SingleTickerProv
     }).toList();
 
     final events = repo.getAcademicCalendar();
+    final pendingDisputes = repo.getPendingDisputes();
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -139,6 +145,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> with SingleTickerProv
             Tab(text: 'Matkul & KRS (${filteredClasses.length})'),
             Tab(text: 'Kalender (${events.length})'),
             Tab(text: 'Ruang & Radius'),
+            Tab(text: 'Verifikasi & Sanggahan (${pendingDisputes.length})'),
           ],
         ),
       ),
@@ -163,6 +170,9 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> with SingleTickerProv
 
                 // Tab 4: Pengaturan Lokasi & Radius Ruang
                 _buildRoomLocationTab(context, adminUser, filteredClasses, repo),
+
+                // Tab 5: Verifikasi Bukti Digital & Peninjauan Sanggahan Mahasiswa
+                _buildDisputesAndVerificationTab(context, adminUser, pendingDisputes, repo),
               ],
             ),
           ),
@@ -1235,6 +1245,397 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> with SingleTickerProv
         children: [
           Text(label, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
           Text(value, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+
+  // ----------------------------------------------------
+  // Tab 5: Verifikasi Bukti Digital & Peninjauan Sanggahan
+  // ----------------------------------------------------
+  Widget _buildDisputesAndVerificationTab(
+    BuildContext context,
+    UserModel adminUser,
+    List<AttendanceModel> pendingDisputes,
+    AttendanceRepository repo,
+  ) {
+    final dateFormatter = DateFormat('dd MMM yyyy, HH:mm WIB');
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(AppDimensions.spaceMD),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 1. Modul Verifikasi Kode Bukti Digital
+          Container(
+            padding: const EdgeInsets.all(AppDimensions.spaceLG),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(AppDimensions.radiusLG),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: const [
+                    Icon(Icons.verified_rounded, color: AppColors.primary, size: 20),
+                    SizedBox(width: 8),
+                    Text(
+                      'Verifikasi Kode Bukti Presensi (Prodi / BAA)',
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Masukkan kode bukti digital mahasiswa untuk memverifikasi keaslian presensi dan integritas rantai hash audit.',
+                  style: TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.35),
+                ),
+                const SizedBox(height: AppDimensions.spaceMD),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _proofVerifyController,
+                        textCapitalization: TextCapitalization.characters,
+                        decoration: const InputDecoration(
+                          hintText: 'Contoh: ALM-XXXX-XXXX-XXXX',
+                          prefixIcon: Icon(Icons.qr_code_2_rounded, size: 20),
+                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: AppDimensions.spaceSM),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      ),
+                      icon: const Icon(Icons.search_rounded, size: 18),
+                      label: const Text('Verifikasi'),
+                      onPressed: () {
+                        final code = _proofVerifyController.text.trim();
+                        if (code.isEmpty) return;
+                        setState(() {
+                          _proofVerificationResult = repo.verifyAttendanceProofCode(code);
+                        });
+                      },
+                    ),
+                  ],
+                ),
+
+                // Hasil Verifikasi Kriptografis
+                if (_proofVerificationResult != null) ...[
+                  const SizedBox(height: AppDimensions.spaceMD),
+                  Container(
+                    padding: const EdgeInsets.all(AppDimensions.spaceMD),
+                    decoration: BoxDecoration(
+                      color: _proofVerificationResult!['found'] == true
+                          ? (_proofVerificationResult!['isChainValid'] == true ? AppColors.successBg : AppColors.errorBg)
+                          : AppColors.background,
+                      borderRadius: BorderRadius.circular(AppDimensions.radiusMD),
+                      border: Border.all(
+                        color: _proofVerificationResult!['found'] == true
+                            ? (_proofVerificationResult!['isChainValid'] == true ? AppColors.success : AppColors.error)
+                            : AppColors.border,
+                      ),
+                    ),
+                    child: _proofVerificationResult!['found'] == true
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    _proofVerificationResult!['isChainValid'] == true
+                                        ? Icons.check_circle_rounded
+                                        : Icons.warning_rounded,
+                                    color: _proofVerificationResult!['isChainValid'] == true
+                                        ? AppColors.success
+                                        : AppColors.error,
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      _proofVerificationResult!['message'],
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                        color: _proofVerificationResult!['isChainValid'] == true
+                                            ? AppColors.success
+                                            : AppColors.error,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const Divider(height: 16),
+                              _buildCoordItem('Nama Mahasiswa', _proofVerificationResult!['studentName']),
+                              _buildCoordItem('NPM Mahasiswa', _proofVerificationResult!['studentNpm']),
+                              _buildCoordItem('Status Saat Ini', _proofVerificationResult!['status']),
+                              _buildCoordItem('Status Awal (Pindai)', _proofVerificationResult!['initialStatus']),
+                              _buildCoordItem(
+                                'Waktu Presensi Server',
+                                dateFormatter.format(_proofVerificationResult!['serverTimestamp']),
+                              ),
+                              _buildCoordItem(
+                                'Rantai Hash Audit Log',
+                                '${_proofVerificationResult!["auditLogsCount"]} Perubahan (Integritas Terverifikasi)',
+                              ),
+                              if (_proofVerificationResult!['isFlagged'] == true) ...[
+                                const SizedBox(height: 6),
+                                Container(
+                                  padding: const EdgeInsets.all(6),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.warningBg,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    'Catatan Anomali: ${_proofVerificationResult!["flagReason"]}',
+                                    style: const TextStyle(fontSize: 11, color: AppColors.warning, fontWeight: FontWeight.w600),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          )
+                        : Text(
+                            _proofVerificationResult!['message'],
+                            style: const TextStyle(color: AppColors.error, fontSize: 13, fontWeight: FontWeight.w600),
+                          ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          const SizedBox(height: AppDimensions.spaceLG),
+
+          // 2. Daftar Sanggahan Kehadiran Mahasiswa
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Permohonan Sanggahan Mahasiswa (${pendingDisputes.length})',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              if (pendingDisputes.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: AppColors.warningBg,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text(
+                    'Perlu Tinjauan Prodi',
+                    style: TextStyle(fontSize: 11, color: AppColors.warning, fontWeight: FontWeight.w700),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: AppDimensions.spaceSM),
+
+          if (pendingDisputes.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(AppDimensions.spaceXL),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(AppDimensions.radiusLG),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Column(
+                children: const [
+                  Icon(Icons.check_circle_outline_rounded, color: AppColors.success, size: 40),
+                  SizedBox(height: 8),
+                  Text(
+                    'Tidak Ada Sanggahan Tertunda',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    'Seluruh kehadiran dan perubahan status mahasiswa dalam kondisi harmonis tanpa sengketa.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                  ),
+                ],
+              ),
+            )
+          else
+            ...pendingDisputes.map(
+              (dispute) => Container(
+                margin: const EdgeInsets.only(bottom: AppDimensions.spaceMD),
+                padding: const EdgeInsets.all(AppDimensions.spaceMD),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(AppDimensions.radiusLG),
+                  border: Border.all(color: AppColors.warning.withValues(alpha: 0.5)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '${dispute.studentName} (NPM: ${dispute.studentNpm})',
+                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            dispute.proofCode,
+                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, fontFamily: 'monospace'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Sesi: ${dispute.sessionId.replaceAll("ses_", "").toUpperCase()}',
+                      style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                    ),
+                    const Divider(height: 16),
+                    Text(
+                      'Perubahan oleh Dosen: ${dispute.initialStatus.displayName.toUpperCase()} → ${dispute.status.displayName.toUpperCase()}',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.error),
+                    ),
+                    Text(
+                      'Alasan Dosen: "${dispute.editReason ?? '-'}"',
+                      style: const TextStyle(fontSize: 11, color: AppColors.textSecondary, fontStyle: FontStyle.italic),
+                    ),
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Alasan Sanggahan Mahasiswa:',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            dispute.disputeReason ?? '-',
+                            style: const TextStyle(fontSize: 12, color: AppColors.textPrimary),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: AppDimensions.spaceMD),
+
+                    // Tombol Aksi Admin Prodi
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.error,
+                              side: const BorderSide(color: AppColors.error),
+                            ),
+                            onPressed: () {
+                              _showDisputeResolutionDialog(context, dispute, false, repo, adminUser);
+                            },
+                            child: const Text('Tolak Sanggahan', style: TextStyle(fontSize: 12)),
+                          ),
+                        ),
+                        const SizedBox(width: AppDimensions.spaceSM),
+                        Expanded(
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                            ),
+                            onPressed: () {
+                              _showDisputeResolutionDialog(context, dispute, true, repo, adminUser);
+                            },
+                            child: const Text('Terima & Pulihkan Hadir', style: TextStyle(fontSize: 12)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _showDisputeResolutionDialog(
+    BuildContext context,
+    AttendanceModel dispute,
+    bool isApproved,
+    AttendanceRepository repo,
+    UserModel adminUser,
+  ) {
+    final notesController = TextEditingController(
+      text: isApproved ? 'Bukti fisik/surat tugas tervalidasi oleh Prodi.' : 'Dosen pengampu telah mengonfirmasi ketidakhadiran fisik.',
+    );
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(isApproved ? 'Terima Sanggahan Mahasiswa' : 'Tolak Sanggahan Mahasiswa'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              isApproved
+                  ? 'Status kehadiran mahasiswa akan dipulihkan kembali ke HADIR dan dicatat ke dalam rantai hash audit.'
+                  : 'Status akan tetap dan mahasiswa akan menerima pemberitahuan penolakan.',
+              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 12),
+            const Text('Catatan Keputusan Admin / Prodi:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 6),
+            TextField(
+              controller: notesController,
+              maxLines: 2,
+              decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.all(8)),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Batal')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isApproved ? AppColors.primary : AppColors.error,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () {
+              final notes = notesController.text.trim();
+              repo.resolveAttendanceDispute(
+                attendanceId: dispute.id,
+                isApproved: isApproved,
+                resolutionNotes: notes,
+                adminName: '${adminUser.name} (${adminUser.adminScope?.displayName ?? "Admin"})',
+              );
+              Navigator.of(ctx).pop();
+              setState(() {});
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(isApproved ? 'Sanggahan diterima & status dipulihkan!' : 'Sanggahan telah ditolak.'),
+                  backgroundColor: isApproved ? AppColors.success : AppColors.error,
+                ),
+              );
+            },
+            child: const Text('Simpan Keputusan'),
+          ),
         ],
       ),
     );

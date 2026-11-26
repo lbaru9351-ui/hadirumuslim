@@ -196,6 +196,7 @@ class _AttendanceRecapScreenState extends State<AttendanceRecapScreen> with Sing
         break;
       case AttendanceStatus.izin:
       case AttendanceStatus.sakit:
+      case AttendanceStatus.perluVerifikasi:
         badgeType = BadgeType.warning;
         break;
       case AttendanceStatus.alfa:
@@ -447,6 +448,7 @@ class _AttendanceRecapScreenState extends State<AttendanceRecapScreen> with Sing
                 initialValue: selectedStatus,
                 decoration: const InputDecoration(contentPadding: EdgeInsets.symmetric(horizontal: 12)),
                 items: AttendanceStatus.values
+                    .where((s) => s != AttendanceStatus.perluVerifikasi)
                     .map((s) => DropdownMenuItem(
                           value: s,
                           child: Text(s.displayName),

@@ -270,42 +270,175 @@ class AttendanceRepository {
   }
 
   // ----------------------------------------------------
-  // Anti-Kecurangan: Perlindungan Data & Audit Trail Dosen
+  // Anti-Kecurangan: Perlindungan Data, Audit Trail Terantai Hash, & Sanggahan
   // ----------------------------------------------------
+  /// Dosen HANYA boleh mengubah status dengan alasan wajib (minimal 5 karakter).
+  /// Dosen TIDAK BOLEH menghapus kehadiran mahasiswa.
+  /// Status awal pemindaian QR tetap tersimpan permanen.
   bool updateAttendanceStatus({
     required String attendanceId,
     required AttendanceStatus newStatus,
     required String reason,
     required String lecturerName,
   }) {
+    if (reason.trim().length < 5) return false;
+
     final idx = _db.attendances.indexWhere((a) => a.id == attendanceId);
     if (idx == -1) return false;
 
     final attendance = _db.attendances[idx];
 
     // ATURAN ANTI-KECURANGAN:
-    // Jika mahasiswa sudah sah memindai QR (Hadir), dosen TIDAK BISA mengubahnya menjadi Alfa!
+    // Jika mahasiswa sah memindai QR (Hadir), dosen tidak dapat mengubah sepihak menjadi Alfa tanpa verifikasi
     if (attendance.isQrVerified && newStatus == AttendanceStatus.alfa) {
       return false;
     }
 
     final oldStatus = attendance.status;
+    final now = DateTime.now();
+
+    // Rantai Hash Kriptografis (Blockchain-like Hash Chaining)
+    final prevHash = attendance.auditLogs.isEmpty
+        ? AuditLogEntry.genesisHash
+        : attendance.auditLogs.last.entryHash;
+    final seq = attendance.auditLogs.length + 1;
+    final entryHash = AuditLogEntry.computeHash(
+      previousHash: prevHash,
+      sequence: seq,
+      timestamp: now,
+      previousStatus: oldStatus,
+      newStatus: newStatus,
+      changedBy: lecturerName,
+      reason: reason.trim(),
+    );
 
     attendance.auditLogs.add(
       AuditLogEntry(
-        timestamp: DateTime.now(),
+        sequence: seq,
+        timestamp: now,
         previousStatus: oldStatus,
         newStatus: newStatus,
         changedBy: lecturerName,
-        reason: reason,
+        reason: reason.trim(),
+        previousHash: prevHash,
+        entryHash: entryHash,
       ),
     );
 
     attendance.status = newStatus;
-    attendance.editReason = reason;
-    attendance.editedAt = DateTime.now();
+    attendance.editReason = reason.trim();
+    attendance.editedAt = now;
     attendance.editedBy = lecturerName;
     return true;
+  }
+
+  /// Pengajuan Sanggahan / Keberatan Mahasiswa atas Perubahan Status
+  bool submitAttendanceDispute({
+    required String attendanceId,
+    required String studentId,
+    required String reason,
+  }) {
+    final idx = _db.attendances.indexWhere((a) => a.id == attendanceId && a.studentId == studentId);
+    if (idx == -1) return false;
+
+    final attendance = _db.attendances[idx];
+    attendance.disputeStatus = DisputeStatus.pending;
+    attendance.disputeReason = reason.trim();
+    attendance.disputedAt = DateTime.now();
+    return true;
+  }
+
+  /// Penyelesaian Sanggahan oleh Admin Program Studi / BAA
+  bool resolveAttendanceDispute({
+    required String attendanceId,
+    required bool isApproved,
+    required String resolutionNotes,
+    required String adminName,
+  }) {
+    final idx = _db.attendances.indexWhere((a) => a.id == attendanceId);
+    if (idx == -1) return false;
+
+    final attendance = _db.attendances[idx];
+    final now = DateTime.now();
+    final oldStatus = attendance.status;
+    final newStatus = isApproved ? attendance.initialStatus : attendance.status;
+
+    // Rantai log audit untuk resolusi sanggahan
+    final prevHash = attendance.auditLogs.isEmpty
+        ? AuditLogEntry.genesisHash
+        : attendance.auditLogs.last.entryHash;
+    final seq = attendance.auditLogs.length + 1;
+    final reasonLog = isApproved
+        ? 'Sanggahan Mahasiswa Diterima: $resolutionNotes'
+        : 'Sanggahan Mahasiswa Ditolak: $resolutionNotes';
+
+    final entryHash = AuditLogEntry.computeHash(
+      previousHash: prevHash,
+      sequence: seq,
+      timestamp: now,
+      previousStatus: oldStatus,
+      newStatus: newStatus,
+      changedBy: adminName,
+      reason: reasonLog,
+    );
+
+    attendance.auditLogs.add(
+      AuditLogEntry(
+        sequence: seq,
+        timestamp: now,
+        previousStatus: oldStatus,
+        newStatus: newStatus,
+        changedBy: adminName,
+        reason: reasonLog,
+        previousHash: prevHash,
+        entryHash: entryHash,
+      ),
+    );
+
+    attendance.status = newStatus;
+    attendance.disputeStatus = isApproved ? DisputeStatus.approved : DisputeStatus.rejected;
+    attendance.disputeResolvedBy = adminName;
+    attendance.disputeResolutionNotes = resolutionNotes;
+    return true;
+  }
+
+  /// Daftar Sanggahan Menunggu Peninjauan Admin Prodi
+  List<AttendanceModel> getPendingDisputes() {
+    return _db.attendances.where((a) => a.disputeStatus == DisputeStatus.pending).toList();
+  }
+
+  /// Verifikasi Keaslian Kode Bukti Presensi oleh Prodi / BAA
+  Map<String, dynamic> verifyAttendanceProofCode(String proofCode) {
+    final cleanCode = proofCode.trim().toUpperCase();
+    final match = _db.attendances.where((a) => a.proofCode.toUpperCase() == cleanCode).toList();
+
+    if (match.isEmpty) {
+      return {
+        'found': false,
+        'message': 'Kode bukti presensi tidak ditemukan di server.',
+      };
+    }
+
+    final attendance = match.first;
+    final isChainValid = attendance.verifyAuditChainIntegrity();
+
+    return {
+      'found': true,
+      'attendance': attendance,
+      'proofCode': attendance.proofCode,
+      'studentName': attendance.studentName,
+      'studentNpm': attendance.studentNpm,
+      'status': attendance.status.displayName,
+      'initialStatus': attendance.initialStatus.displayName,
+      'serverTimestamp': attendance.serverTimestamp,
+      'isChainValid': isChainValid,
+      'auditLogsCount': attendance.auditLogs.length,
+      'isFlagged': attendance.isFlagged,
+      'flagReason': attendance.flagReason,
+      'message': isChainValid
+          ? 'Bukti Sah! Integritas rantai hash terverifikasi penuh.'
+          : 'Peringatan: Terdeteksi ketidakcocokan pada rantai hash audit!',
+    };
   }
 
   // ----------------------------------------------------
@@ -507,6 +640,21 @@ class AttendanceRepository {
       );
     }
 
+    // DETEKSI ANOMALI POLA MENCURIGAKAN (Prinsip Fairness: Ditandai "Perlu Verifikasi", Tidak Ditolak Sepihak)
+    bool isAnomaly = false;
+    String? anomalyReason;
+
+    final recentSameScans = _db.attendances.where((a) =>
+        a.sessionId == session.id &&
+        serverTime.difference(a.serverTimestamp).inSeconds.abs() <= 5 &&
+        (a.studentLat - studentLat).abs() < 0.00001 &&
+        (a.studentLon - studentLon).abs() < 0.00001);
+
+    if (recentSameScans.isNotEmpty) {
+      isAnomaly = true;
+      anomalyReason = 'Pola koordinat identik dalam rentang < 5 detik (ditandai untuk tinjauan dosen/prodi)';
+    }
+
     // LAPIS 7: Cap waktu server dan durasi proses (KF-14)
     final processDurationMs = serverTime.difference(scanStartTime).inMilliseconds;
 
@@ -517,7 +665,8 @@ class AttendanceRepository {
       studentId: student.id,
       studentName: student.name,
       studentNpm: student.identifier,
-      status: AttendanceStatus.hadir,
+      initialStatus: isAnomaly ? AttendanceStatus.perluVerifikasi : AttendanceStatus.hadir,
+      status: isAnomaly ? AttendanceStatus.perluVerifikasi : AttendanceStatus.hadir,
       source: AttendanceSource.qrScan,
       serverTimestamp: serverTime,
       distanceMeters: distanceMeters,
@@ -526,6 +675,8 @@ class AttendanceRepository {
       deviceId: currentDeviceId,
       processDurationMs: processDurationMs > 0 ? processDurationMs : 1250,
       isOnlineMode: session.mode == SessionMode.daring,
+      isFlagged: isAnomaly,
+      flagReason: anomalyReason,
     );
 
     _db.attendances.add(newAttendance);
